@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Super Res</string>
+    <string name="title">图片超分辨率修复</string>
+    <string name="preview">预览</string>
+    <string name="pick_image">选择图片</string>
+    <string name="pick_model">导入自定义模型(.tflite)</string>
+    <string name="scale">放大倍数</string>
+    <string name="use_gpu">使用GPU推理</string>
+    <string name="gpu_default">使用GPU推理（默认）</string>
+    <string name="run">开始修复</string>
+    <string name="status_ready">请选择图片</string>
+    <string name="image_loaded">已加载图片：%1$d × %2$d</string>
+    <string name="custom_model_selected">已选择自定义模型</string>
+    <string name="permission_denied">未授予存储权限</string>
+    <string name="load_failed">读取失败：%1$s</string>
+    <string name="enhancing">正在修复中…</string>
+    <string name="done">修复完成：%1$d × %2$d</string>
+    <string name="done_short">修复完成</string>
+    <string name="error">错误：%1$s</string>
+    <string name="error_short">修复失败：%1$s</string>
+</resources>
