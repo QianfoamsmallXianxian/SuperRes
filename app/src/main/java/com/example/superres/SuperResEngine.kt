@@ -25,31 +25,84 @@ object SuperResEngine {
     ): Bitmap = withContext(Dispatchers.IO) {
         val targetScale = scale.coerceIn(1, 16)
 
-        if (customModelUri == null) {
-            onProgress(10)
-            // 未导入模型时，使用高质量渐进式双三次插值作为兜底。
-            progressiveScale(bitmap, targetScale, onProgress)
+        val raw = if (customModelUri == null) {
+            onProgress(5)
+            highQualityScale(bitmap, targetScale, onProgress)
         } else {
             runTfLite(context, bitmap, targetScale, useGpu, customModelUri, customModelName ?: "custom.tflite", onProgress)
         }
+
+        onProgress(86)
+        clarityEnhance(raw, onProgress)
     }
 
-    private fun progressiveScale(src: Bitmap, targetScale: Int, onProgress: (Int) -> Unit): Bitmap {
-        var current = src
+    private fun highQualityScale(src: Bitmap, targetScale: Int, onProgress: (Int) -> Unit): Bitmap {
+        if (targetScale <= 1) return src.copy(Bitmap.Config.ARGB_8888, false)
+
+        var result = src
         var currentScale = 1
-        var step = 0
         while (currentScale < targetScale) {
             val nextScale = min(targetScale, currentScale * 2)
-            val maxDim = 2400
+            val maxDim = 3000
             val w = (src.width * nextScale).coerceAtMost(maxDim)
             val h = (src.height * nextScale).coerceAtMost(maxDim)
-            current = Bitmap.createScaledBitmap(src, w, h, true)
+            result = Bitmap.createScaledBitmap(src, w, h, true)
             currentScale = nextScale
-            step++
-            onProgress(10 + (70 * currentScale / targetScale))
+            onProgress(5 + (78 * currentScale / targetScale))
         }
-        onProgress(90)
-        return current
+        return result
+    }
+
+    private fun clarityEnhance(src: Bitmap, onProgress: (Int) -> Unit): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w < 2 || h < 2) return src
+
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val out = IntArray(pixels.size)
+
+        val strength = 1.12f
+        for (y in 1 until h - 1) {
+            val rowTop = (y - 1) * w
+            val rowMid = y * w
+            val rowBot = (y + 1) * w
+            for (x in 1 until w - 1) {
+                val i = rowMid + x
+                val c = pixels[i]
+                val r = (c shr 16 and 0xFF).toFloat()
+                val g = (c shr 8 and 0xFF).toFloat()
+                val b = (c and 0xFF).toFloat()
+
+                fun px(idx: Int, shift: Int): Float = ((pixels[idx] shr shift) and 0xFF).toFloat()
+
+                val rSum = 5f * r - px(rowTop + x, 16) - px(rowBot + x, 16) - px(i - 1, 16) - px(i + 1, 16)
+                val gSum = 5f * g - px(rowTop + x, 8) - px(rowBot + x, 8) - px(i - 1, 8) - px(i + 1, 8)
+                val bSum = 5f * b - px(rowTop + x, 0) - px(rowBot + x, 0) - px(i - 1, 0) - px(i + 1, 0)
+
+                val nr = (r + (rSum - r) * (strength - 1f)).toInt().coerceIn(0, 255)
+                val ng = (g + (gSum - g) * (strength - 1f)).toInt().coerceIn(0, 255)
+                val nb = (b + (bSum - b) * (strength - 1f)).toInt().coerceIn(0, 255)
+
+                out[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+            }
+            if (y % 100 == 0) {
+                onProgress(86 + (12 * y / h))
+            }
+        }
+
+        for (y in 0 until h) {
+            val row = y * w
+            out[row] = pixels[row]
+            out[row + w - 1] = pixels[row + w - 1]
+        }
+        for (x in 0 until w) {
+            out[x] = pixels[x]
+            out[(h - 1) * w + x] = pixels[(h - 1) * w + x]
+        }
+
+        onProgress(98)
+        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
     }
 
     private fun runTfLite(
@@ -92,7 +145,6 @@ object SuperResEngine {
 
             onProgress(20)
 
-            // 模型自带放大倍率由输出/输入比例推断
             val modelOutH = if (outputShape.size >= 2) outputShape[1] else inH * 4
             val modelOutW = if (outputShape.size >= 3) outputShape[2] else inW * 4
             val modelScale = min(modelOutH / inH, modelOutW / inW).coerceAtLeast(1)
@@ -107,11 +159,11 @@ object SuperResEngine {
             var result = floatBufferToBitmap(outputBuffer, modelOutW, modelOutH)
 
             if (modelScale < targetScale) {
-                result = progressiveScale(result, targetScale / modelScale) { pct ->
-                    onProgress(60 + (30 * pct / 100))
+                result = highQualityScale(result, targetScale / modelScale) { pct ->
+                    onProgress(60 + (22 * pct / 100))
                 }
             }
-            onProgress(95)
+            onProgress(82)
             result
         } finally {
             try { interpreter?.close() } catch (_: Exception) {}
