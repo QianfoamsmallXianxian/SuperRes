@@ -4,14 +4,14 @@
     <string name="title">图片超分辨率修复</string>
     <string name="preview">预览</string>
     <string name="pick_image">选择图片</string>
-    <string name="pick_model">导入自定义模型(.tflite)</string>
+    <string name="pick_model">导入模型(.tflite)</string>
     <string name="scale">放大倍数</string>
     <string name="use_gpu">使用GPU推理</string>
     <string name="auto_save">自动保存修复结果</string>
     <string name="run">开始修复</string>
     <string name="status_ready">请选择图片</string>
     <string name="image_loaded">导入图片：%1$d × %2$d</string>
-    <string name="custom_model_selected">已选择自定义模型</string>
+    <string name="custom_model_selected">已识别并使用TFLite模型</string>
     <string name="permission_denied">未授予存储权限</string>
     <string name="load_failed">读取失败：%1$s</string>
     <string name="enhancing">正在修复中…</string>
@@ -21,4 +21,10 @@
     <string name="done_short">修复完成</string>
     <string name="error">错误：%1$s</string>
     <string name="error_short">修复失败：%1$s</string>
+    <string name="model_path">模型路径：%1$s</string>
+    <string name="model_path_default">模型路径：未导入</string>
+    <string name="model_status_default">模型状态：未导入</string>
+    <string name="model_ready">模型状态：可用的TFLite模型</string>
+    <string name="model_unsupported">模型状态：不支持，将使用内置算法</string>
+    <string name="model_will_fallback">模型格式不支持，修复时将使用内置增强</string>
 </resources>
