@@ -17,11 +17,19 @@
             android:textSize="22sp"
             android:textStyle="bold" />
 
+        <TextView
+            android:id="@+id/tvImportInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/status_ready"
+            android:textSize="14sp" />
+
         <ImageView
             android:id="@+id/imgPreview"
             android:layout_width="match_parent"
             android:layout_height="300dp"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             android:background="#EEE"
             android:contentDescription="@string/preview"
             android:scaleType="fitCenter" />
@@ -65,6 +73,13 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/use_gpu" />
+
+        <Switch
+            android:id="@+id/switchAutoSave"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/auto_save" />
 
         <ProgressBar
             android:id="@+id/progressBar"
