@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedBitmap: Bitmap? = null
     private var customModelUri: Uri? = null
     private var selectedModelName: String? = null
+    private var modelSupported: Boolean = false
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
@@ -44,8 +45,11 @@ class MainActivity : AppCompatActivity() {
     private val pickModel = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
             customModelUri = it
-            selectedModelName = "custom_" + System.currentTimeMillis() + ".tflite"
-            binding.tvStatus.text = getString(R.string.custom_model_selected)
+            selectedModelName = getModelFileName(it) ?: ("custom_" + System.currentTimeMillis() + ".tflite")
+            modelSupported = isSupportedModel(selectedModelName)
+            binding.tvModelPath.text = getString(R.string.model_path, selectedModelName)
+            binding.tvModelStatus.text = if (modelSupported) getString(R.string.model_ready) else getString(R.string.model_unsupported)
+            binding.tvStatus.text = if (modelSupported) getString(R.string.custom_model_selected) else getString(R.string.model_will_fallback)
         }
     }
 
@@ -104,13 +108,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getModelFileName(uri: Uri): String? {
+        return try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else null
+            }
+        } catch (e: Exception) { null }
+    }
+
+    private fun isSupportedModel(name: String?): Boolean {
+        val n = name?.lowercase() ?: return false
+        return n.endsWith(".tflite") || n.endsWith(".lite")
+    }
+
     private fun runEnhance() {
         val src = selectedBitmap ?: return
         val scaleText = binding.spinnerScale.selectedItem?.toString() ?: "4x"
         val scale = scaleText.removeSuffix("x").toIntOrNull() ?: 4
         val useGpu = binding.switchGpu.isChecked
         val autoSave = binding.switchAutoSave.isChecked
-        val modelUri = customModelUri
+        val modelUri = if (modelSupported) customModelUri else null
 
         binding.btnRun.isEnabled = false
         binding.progressBar.isIndeterminate = true
@@ -134,9 +152,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 var saveInfo = ""
-                if (autoSave) {
-                    saveInfo = saveBitmapToGallery(result)
-                }
+                if (autoSave) saveInfo = saveBitmapToGallery(result)
 
                 withContext(Dispatchers.Main) {
                     binding.imgPreview.setImageBitmap(result)
@@ -174,14 +190,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 getString(R.string.saved_to, "Pictures/SuperRes/$fileName")
             } else {
-                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).let {
-                    File(it, "SuperRes")
-                }
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).let { File(it, "SuperRes") }
                 if (!dir.exists()) dir.mkdirs()
                 val file = File(dir, fileName)
-                FileOutputStream(file).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
+                FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
                 getString(R.string.saved_to, file.absolutePath)
             }
         } catch (e: Exception) {
