@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUi() {
-        val scales = listOf("1x", "2x", "3x", "4x", "8x", "16x")
+        val scales = listOf("1x", "2x", "3x", "4x", "8x")
         binding.spinnerScale.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, scales)
         binding.spinnerScale.setSelection(3)
 
