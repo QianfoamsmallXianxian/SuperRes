@@ -2,11 +2,6 @@ package com.example.superres
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Paint
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,10 +10,11 @@ import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.min
 
 object SuperResEngine {
 
-    private const val MAX_PIXELS = 8000000
+    private const val MAX_PIXELS = 64_000_000L
 
     suspend fun enhance(
         context: Context,
@@ -30,94 +26,95 @@ object SuperResEngine {
         onProgress: (Int) -> Unit
     ): Bitmap = withContext(Dispatchers.IO) {
         val targetScale = scale.coerceIn(1, 16)
-        val upscaled = if (customModelUri == null) {
+
+        val raw = if (customModelUri == null) {
             onProgress(5)
-            progressive(bitmap, targetScale, onProgress)
+            highQualityScale(bitmap, targetScale, onProgress)
         } else {
-            runModel(context, bitmap, targetScale, useGpu, customModelUri, customModelName ?: "custom.tflite", onProgress)
+            runTfLite(context, bitmap, targetScale, useGpu, customModelUri, customModelName ?: "custom.tflite", onProgress)
         }
-        onProgress(90)
-        enhanceQuality(upscaled, onProgress)
+
+        onProgress(86)
+        clarityEnhance(raw, onProgress)
     }
 
-    private fun progressive(src: Bitmap, targetScale: Int, onProgress: (Int) -> Unit): Bitmap {
-        var current = src
+    private fun highQualityScale(src: Bitmap, targetScale: Int, onProgress: (Int) -> Unit): Bitmap {
+        if (targetScale <= 1) return src.copy(Bitmap.Config.ARGB_8888, false)
+
+        var result = src
         var currentScale = 1
-        val maxDim = 2400
         while (currentScale < targetScale) {
-            val next = (currentScale * 2).coerceAtMost(targetScale)
-            val ratio = minOf(maxDim.toFloat() / (src.width * next).coerceAtLeast(1), maxDim.toFloat() / (src.height * next).coerceAtLeast(1), 1f); val w = (src.width * next * ratio).toInt().coerceAtLeast(1)
-            val h = (src.height * next * ratio).toInt().coerceAtLeast(1)
-            current = Bitmap.createScaledBitmap(src, w, h, true)
-            currentScale = next
-            onProgress(5 + (80 * currentScale / targetScale))
-            if (w.toLong() * h.toLong() > MAX_PIXELS) current = downscale(current)
+            val nextScale = min(targetScale, currentScale * 2)
+            var w = src.width * nextScale
+            var h = src.height * nextScale
+
+            val pixels = w.toLong() * h.toLong()
+            if (pixels > MAX_PIXELS) {
+                val ratio = kotlin.math.sqrt(MAX_PIXELS.toDouble() / pixels)
+                w = (w * ratio).toInt().coerceAtLeast(1)
+                h = (h * ratio).toInt().coerceAtLeast(1)
+            }
+
+            result = Bitmap.createScaledBitmap(src, w, h, true)
+            currentScale = nextScale
+            onProgress(5 + (78 * currentScale / targetScale))
         }
-        return current
+        return result
     }
 
-    private fun downscale(bitmap: Bitmap): Bitmap {
-        val p = bitmap.width.toLong() * bitmap.height.toLong()
-        if (p <= MAX_PIXELS) return bitmap
-        val ratio = kotlin.math.sqrt(MAX_PIXELS.toDouble() / p)
-        return Bitmap.createScaledBitmap(bitmap, (bitmap.width * ratio).toInt().coerceAtLeast(1), (bitmap.height * ratio).toInt().coerceAtLeast(1), true)
-    }
+    private fun clarityEnhance(src: Bitmap, onProgress: (Int) -> Unit): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w < 2 || h < 2) return src
 
-    private fun enhanceQuality(bitmap: Bitmap, onProgress: (Int) -> Unit): Bitmap {
-        var out = colorEnhance(bitmap)
-        onProgress(93)
-        out = sharpen(out)
-        onProgress(98)
-        return out
-    }
-
-    private fun colorEnhance(bitmap: Bitmap): Bitmap {
-        val out = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        val c = Canvas(out)
-        val p = Paint().apply {
-            isAntiAlias = true
-            isFilterBitmap = true
-            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.12f) })
-        }
-        c.drawBitmap(bitmap, 0f, 0f, p)
-        return out
-    }
-
-    private fun sharpen(bitmap: Bitmap): Bitmap {
-        val w = bitmap.width
-        val h = bitmap.height
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(w * h)
-        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-        val sharp = pixels.copyOf()
-        val k = 0.18f
-        for (y in 0 until h) {
-            val ym = (y - 1).coerceAtLeast(0)
-            val yp = (y + 1).coerceAtMost(h - 1)
-            val rm = ym * w
-            val rc = y * w
-            val rp = yp * w
-            for (x in 0 until w) {
-                val xm = (x - 1).coerceAtLeast(0)
-                val xp = (x + 1).coerceAtMost(w - 1)
-                val i = rc + x
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val out = IntArray(pixels.size)
+
+        val strength = 1.12f
+        for (y in 1 until h - 1) {
+            val rowTop = (y - 1) * w
+            val rowMid = y * w
+            val rowBot = (y + 1) * w
+            for (x in 1 until w - 1) {
+                val i = rowMid + x
                 val c = pixels[i]
-                val r = sharpenCh(Color.red(c), Color.red(pixels[rm + xm]), Color.red(pixels[rm + x]), Color.red(pixels[rm + xp]), Color.red(pixels[rc + xm]), Color.red(pixels[rc + xp]), Color.red(pixels[rp + xm]), Color.red(pixels[rp + x]), Color.red(pixels[rp + xp]), k)
-                val g = sharpenCh(Color.green(c), Color.green(pixels[rm + xm]), Color.green(pixels[rm + x]), Color.green(pixels[rm + xp]), Color.green(pixels[rc + xm]), Color.green(pixels[rc + xp]), Color.green(pixels[rp + xm]), Color.green(pixels[rp + x]), Color.green(pixels[rp + xp]), k)
-                val b = sharpenCh(Color.blue(c), Color.blue(pixels[rm + xm]), Color.blue(pixels[rm + x]), Color.blue(pixels[rm + xp]), Color.blue(pixels[rc + xm]), Color.blue(pixels[rc + xp]), Color.blue(pixels[rp + xm]), Color.blue(pixels[rp + x]), Color.blue(pixels[rp + xp]), k)
-                sharp[i] = Color.rgb(r, g, b)
+                val r = (c shr 16 and 0xFF).toFloat()
+                val g = (c shr 8 and 0xFF).toFloat()
+                val b = (c and 0xFF).toFloat()
+
+                fun px(idx: Int, shift: Int): Float = ((pixels[idx] shr shift) and 0xFF).toFloat()
+
+                val rSum = 5f * r - px(rowTop + x, 16) - px(rowBot + x, 16) - px(i - 1, 16) - px(i + 1, 16)
+                val gSum = 5f * g - px(rowTop + x, 8) - px(rowBot + x, 8) - px(i - 1, 8) - px(i + 1, 8)
+                val bSum = 5f * b - px(rowTop + x, 0) - px(rowBot + x, 0) - px(i - 1, 0) - px(i + 1, 0)
+
+                val nr = (r + (rSum - r) * (strength - 1f)).toInt().coerceIn(0, 255)
+                val ng = (g + (gSum - g) * (strength - 1f)).toInt().coerceIn(0, 255)
+                val nb = (b + (bSum - b) * (strength - 1f)).toInt().coerceIn(0, 255)
+
+                out[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+            }
+            if (y % 100 == 0) {
+                onProgress(86 + (12 * y / h))
             }
         }
-        out.setPixels(sharp, 0, w, 0, 0, w, h)
-        return out
+
+        for (y in 0 until h) {
+            val row = y * w
+            out[row] = pixels[row]
+            out[row + w - 1] = pixels[row + w - 1]
+        }
+        for (x in 0 until w) {
+            out[x] = pixels[x]
+            out[(h - 1) * w + x] = pixels[(h - 1) * w + x]
+        }
+
+        onProgress(98)
+        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
     }
 
-    private fun sharpenCh(c: Int, tl: Int, t: Int, tr: Int, l: Int, r: Int, bl: Int, b: Int, br: Int, k: Float): Int {
-        val n = tl + t + tr + l + r + bl + b + br
-        return (c + (k * (8 * c - n)).toInt()).coerceIn(0, 255)
-    }
-
-    private fun runModel(
+    private fun runTfLite(
         context: Context,
         bitmap: Bitmap,
         targetScale: Int,
@@ -128,106 +125,88 @@ object SuperResEngine {
     ): Bitmap {
         val modelFile = File(context.cacheDir, modelName)
         context.contentResolver.openInputStream(modelUri).use { input ->
-            requireNotNull(input) { "read model failed" }
-            modelFile.outputStream().use { out -> input.copyTo(out) }
+            requireNotNull(input) { "无法读取模型文件" }
+            modelFile.outputStream().use { output -> input.copyTo(output) }
         }
-        var gpu: GpuDelegate? = null
+
+        var delegate: GpuDelegate? = null
         var interpreter: Interpreter? = null
         return try {
             val options = Interpreter.Options()
             if (useGpu) {
                 try {
-                    gpu = GpuDelegate()
-                    options.addDelegate(gpu)
+                    delegate = GpuDelegate()
+                    options.addDelegate(delegate)
                 } catch (e: Exception) {
-                    gpu?.close()
-                    gpu = null
+                    if (delegate != null) delegate?.close()
+                    delegate = null
                 }
             }
-            interpreter = try {
-                Interpreter(modelFile, options)
-            } catch (e: Exception) {
-                if (gpu != null) {
-                    gpu.close()
-                    gpu = null
-                    Interpreter(modelFile, options)
-                } else throw e
-            }
-            val model = interpreter ?: throw IllegalStateException("init failed"); val it = model.getInputTensor(0)
-            val ot = model.getOutputTensor(0)
-            val ish = it.shape()
-            val osh = ot.shape()
-            val inH = if (ish.size >= 2) ish[1] else bitmap.height
-            val inW = if (ish.size >= 3) ish[2] else bitmap.width
-            val bytesPer = it.numBytes().toLong() / (inH.toLong() * inW.toLong()).coerceAtLeast(1L)
-            val ch = bytesPer.coerceIn(1L, 4L).toInt()
+
+            interpreter = Interpreter(modelFile, options)
+            val inputTensor = interpreter.getInputTensor(0)
+            val outputTensor = interpreter.getOutputTensor(0)
+            val inputShape = inputTensor.shape()
+            val outputShape = outputTensor.shape()
+
+            val inH = if (inputShape.size >= 2) inputShape[1] else bitmap.height
+            val inW = if (inputShape.size >= 3) inputShape[2] else bitmap.width
+
             onProgress(20)
-            val outH = if (osh.size >= 2) osh[1] else inH * 4
-            val outW = if (osh.size >= 3) osh[2] else inW * 4
-            val modelScale = minOf(outH / inH, outW / inW).coerceAtLeast(1)
-            val inBuf = makeInput(bitmap, inW, inH, ch, it)
-            val outBuf = ByteBuffer.allocateDirect(ot.numBytes()).order(ByteOrder.nativeOrder())
-            model.run(inBuf, outBuf)
+
+            val modelOutH = if (outputShape.size >= 2) outputShape[1] else inH * 4
+            val modelOutW = if (outputShape.size >= 3) outputShape[2] else inW * 4
+            val modelScale = min(modelOutH / inH, modelOutW / inW).coerceAtLeast(1)
+
+            val inputBuffer = bitmapToFloatBuffer(bitmap, inW, inH)
+            val outputSize = outputTensor.numBytes()
+            val outputBuffer = ByteBuffer.allocateDirect(outputSize).order(ByteOrder.nativeOrder())
+
+            interpreter.run(inputBuffer, outputBuffer)
             onProgress(60)
-            var result = if (ot.dataType() == org.tensorflow.lite.DataType.UINT8) uint8ToBitmap(outBuf, outW, outH) else floatToBitmap(outBuf, outW, outH)
-            if (modelScale < targetScale) result = progressive(result, targetScale / modelScale) { p -> onProgress(60 + (25 * p / 100)) }
-            onProgress(85)
+
+            var result = floatBufferToBitmap(outputBuffer, modelOutW, modelOutH)
+
+            if (modelScale < targetScale) {
+                result = highQualityScale(result, targetScale / modelScale) { pct ->
+                    onProgress(60 + (22 * pct / 100))
+                }
+            }
+            onProgress(82)
             result
         } finally {
             try { interpreter?.close() } catch (_: Exception) {}
-            try { gpu?.close() } catch (_: Exception) {}
+            try { delegate?.close() } catch (_: Exception) {}
             if (modelFile.exists()) modelFile.delete()
         }
     }
 
-    private fun makeInput(bitmap: Bitmap, w: Int, h: Int, ch: Int, tensor: org.tensorflow.lite.Tensor): ByteBuffer {
-        val scaled = if (bitmap.width != w || bitmap.height != h) Bitmap.createScaledBitmap(bitmap, w, h, true) else bitmap
-        val isU8 = tensor.dataType() == org.tensorflow.lite.DataType.UINT8
-        val bytes = if (isU8) ch else ch * 4
-        val buf = ByteBuffer.allocateDirect(w * h * bytes).order(ByteOrder.nativeOrder())
-        val pixels = IntArray(w * h)
-        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
+    private fun bitmapToFloatBuffer(bitmap: Bitmap, width: Int, height: Int): ByteBuffer {
+        val scaled = if (bitmap.width != width || bitmap.height != height) {
+            Bitmap.createScaledBitmap(bitmap, width, height, true)
+        } else bitmap
+
+        val buffer = ByteBuffer.allocateDirect(width * height * 3 * 4).order(ByteOrder.nativeOrder())
+        val pixels = IntArray(width * height)
+        scaled.getPixels(pixels, 0, width, 0, 0, width, height)
         for (px in pixels) {
-            val r = px shr 16 and 255
-            val g = px shr 8 and 255
-            val b = px and 255
-            if (isU8) {
-                buf.put(r.toByte())
-                buf.put(g.toByte())
-                buf.put(b.toByte())
-                if (ch == 4) buf.put(255.toByte())
-            } else {
-                buf.putFloat(r / 255f)
-                buf.putFloat(g / 255f)
-                buf.putFloat(b / 255f)
-                if (ch == 4) buf.putFloat(1f)
-            }
+            buffer.putFloat(((px shr 16 and 0xFF) / 255f))
+            buffer.putFloat(((px shr 8 and 0xFF) / 255f))
+            buffer.putFloat(((px and 0xFF) / 255f))
         }
-        buf.rewind()
-        return buf
+        buffer.rewind()
+        return buffer
     }
 
-    private fun floatToBitmap(buffer: ByteBuffer, w: Int, h: Int): Bitmap {
+    private fun floatBufferToBitmap(buffer: ByteBuffer, width: Int, height: Int): Bitmap {
         buffer.rewind()
-        val pixels = IntArray(w * h)
+        val pixels = IntArray(width * height)
         for (i in pixels.indices) {
             val r = (buffer.float * 255f).toInt().coerceIn(0, 255)
             val g = (buffer.float * 255f).toInt().coerceIn(0, 255)
             val b = (buffer.float * 255f).toInt().coerceIn(0, 255)
-            pixels[i] = (255 shl 24) or (r shl 16) or (g shl 8) or b
+            pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
-        return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
-    }
-
-    private fun uint8ToBitmap(buffer: ByteBuffer, w: Int, h: Int): Bitmap {
-        buffer.rewind()
-        val pixels = IntArray(w * h)
-        for (i in pixels.indices) {
-            val r = buffer.get().toInt() and 255
-            val g = buffer.get().toInt() and 255
-            val b = buffer.get().toInt() and 255
-            pixels[i] = (255 shl 24) or (r shl 16) or (g shl 8) or b
-        }
-        return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     }
 }
