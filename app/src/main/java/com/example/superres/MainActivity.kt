@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
             val bmp = loadBitmap(it)
             selectedBitmap = bmp
             binding.imgPreview.setImageBitmap(bmp)
-            binding.tvImportInfo.text = getString(R.string.image_loaded, bmp?.width ?: 0, bmp?.height ?: 0)
+            binding.tvImportInfo.text = getString(R.string.image_loaded, bmp?.width ?: 0, bmp?.height ?: 0) + if (bmp?.hasAlpha() == true) "\n透明贴图：是" else "\n透明贴图：否"
             binding.btnRun.isEnabled = bmp != null
         }
     }
