@@ -46,8 +46,8 @@ object SuperResEngine {
         val maxDim = 2400
         while (currentScale < targetScale) {
             val next = (currentScale * 2).coerceAtMost(targetScale)
-            val w = (src.width * next).coerceAtMost(maxDim).coerceAtLeast(1)
-            val h = (src.height * next).coerceAtMost(maxDim).coerceAtLeast(1)
+            val ratio = minOf(maxDim.toFloat() / (src.width * next).coerceAtLeast(1), maxDim.toFloat() / (src.height * next).coerceAtLeast(1), 1f); val w = (src.width * next * ratio).toInt().coerceAtLeast(1)
+            val h = (src.height * next * ratio).toInt().coerceAtLeast(1)
             current = Bitmap.createScaledBitmap(src, w, h, true)
             currentScale = next
             onProgress(5 + (80 * currentScale / targetScale))
