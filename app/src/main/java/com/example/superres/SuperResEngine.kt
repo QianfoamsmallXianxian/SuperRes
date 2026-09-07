@@ -14,7 +14,7 @@ import kotlin.math.min
 
 object SuperResEngine {
 
-    private const val MAX_PIXELS = 18_000_000L
+    private const val MAX_PIXELS = 64_000_000L
 
     suspend fun enhance(
         context: Context,
@@ -25,7 +25,7 @@ object SuperResEngine {
         customModelName: String?,
         onProgress: (Int) -> Unit
     ): Bitmap = withContext(Dispatchers.IO) {
-        val targetScale = scale.coerceIn(1, 16)
+        val targetScale = scale.coerceIn(1, 8)
 
         val raw = if (customModelUri == null) {
             onProgress(5)
