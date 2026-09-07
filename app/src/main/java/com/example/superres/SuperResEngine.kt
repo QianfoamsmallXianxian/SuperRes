@@ -150,12 +150,11 @@ object SuperResEngine {
                 if (gpu != null) {
                     gpu.close()
                     gpu = null
-                    options.clearDelegates()
                     Interpreter(modelFile, options)
                 } else throw e
             }
-            val it = interpreter.getInputTensor(0)
-            val ot = interpreter.getOutputTensor(0)
+            val model = interpreter ?: throw IllegalStateException("init failed"); val it = model.getInputTensor(0)
+            val ot = model.getOutputTensor(0)
             val ish = it.shape()
             val osh = ot.shape()
             val inH = if (ish.size >= 2) ish[1] else bitmap.height
@@ -168,7 +167,7 @@ object SuperResEngine {
             val modelScale = minOf(outH / inH, outW / inW).coerceAtLeast(1)
             val inBuf = makeInput(bitmap, inW, inH, ch, it)
             val outBuf = ByteBuffer.allocateDirect(ot.numBytes()).order(ByteOrder.nativeOrder())
-            interpreter.run(inBuf, outBuf)
+            model.run(inBuf, outBuf)
             onProgress(60)
             var result = if (ot.dataType() == org.tensorflow.lite.DataType.UINT8) uint8ToBitmap(outBuf, outW, outH) else floatToBitmap(outBuf, outW, outH)
             if (modelScale < targetScale) result = progressive(result, targetScale / modelScale) { p -> onProgress(60 + (25 * p / 100)) }
