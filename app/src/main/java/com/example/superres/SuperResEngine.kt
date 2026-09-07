@@ -14,7 +14,7 @@ import kotlin.math.min
 
 object SuperResEngine {
 
-    private const val MAX_PIXELS = 64_000_000L
+    private const val MAX_PIXELS = 18_000_000L
 
     suspend fun enhance(
         context: Context,
@@ -35,7 +35,7 @@ object SuperResEngine {
         }
 
         onProgress(86)
-        clarityEnhance(raw, onProgress)
+        if (raw.width.toLong() * raw.height.toLong() > 18_000_000L) raw else clarityEnhance(raw, onProgress)
     }
 
     private fun highQualityScale(src: Bitmap, targetScale: Int, onProgress: (Int) -> Unit): Bitmap {
