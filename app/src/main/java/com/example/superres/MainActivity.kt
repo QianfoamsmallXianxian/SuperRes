@@ -1,4 +1,6 @@
 package com.example.superres
+import android.graphics.Color
+import android.view.View
 
 import android.Manifest
 import android.content.ContentValues
