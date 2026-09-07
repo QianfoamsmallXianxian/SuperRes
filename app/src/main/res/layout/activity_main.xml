@@ -47,6 +47,22 @@
             android:layout_height="wrap_content"
             android:text="@string/pick_model" />
 
+        <TextView
+            android:id="@+id/tvModelPath"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/model_path_default"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvModelStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/model_status_default"
+            android:textSize="12sp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
