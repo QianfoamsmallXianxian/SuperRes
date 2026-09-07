@@ -93,7 +93,7 @@ object SuperResEngine {
                 val ng = (g + (gSum - g) * (strength - 1f)).toInt().coerceIn(0, 255)
                 val nb = (b + (bSum - b) * (strength - 1f)).toInt().coerceIn(0, 255)
 
-                out[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+                out[i] = ((pixels[i] ushr 24) shl 24) or (nr shl 16) or (ng shl 8) or nb
             }
             if (y % 100 == 0) {
                 onProgress(86 + (12 * y / h))
