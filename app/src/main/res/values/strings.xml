@@ -3,7 +3,8 @@
     <string name="app_name">Super Res</string>
     <string name="title">图片超分辨率修复</string>
     <string name="preview">预览</string>
-    <string name="pick_image">选择图片</string>
+    <string name="pick_image">选择单张图片</string>
+    <string name="pick_batch">批量选择图片</string>
     <string name="pick_model">导入模型(.tflite)</string>
     <string name="scale">放大倍数</string>
     <string name="use_gpu">使用GPU推理</string>
@@ -27,4 +28,5 @@
     <string name="model_ready">模型状态：可用的TFLite模型</string>
     <string name="model_unsupported">模型状态：不支持，将使用内置算法</string>
     <string name="model_will_fallback">模型格式不支持，修复时将使用内置增强</string>
+    <string name="batch_done">批量完成：%1$d 张</string>
 </resources>
