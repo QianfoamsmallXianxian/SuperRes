@@ -42,6 +42,13 @@
             android:text="@string/pick_image" />
 
         <Button
+            android:id="@+id/btnPickBatch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/pick_batch" />
+
+        <Button
             android:id="@+id/btnPickModel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
