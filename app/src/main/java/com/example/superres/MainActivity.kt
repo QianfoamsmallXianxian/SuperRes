@@ -167,6 +167,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runBatch(uris: List<Uri>) {
+        binding.btnRun.isEnabled = false
         val scale = currentScale()
         val useGpu = binding.switchGpu.isChecked
         val autoSave = binding.switchAutoSave.isChecked
@@ -188,6 +189,7 @@ class MainActivity : AppCompatActivity() {
             }
             withContext(Dispatchers.Main) {
                 binding.tvStatus.text = getString(R.string.batch_done, okCount)
+                binding.btnRun.isEnabled = true
                 binding.progressBar.progress = 100
                 binding.progressBar.isIndeterminate = false
             }
