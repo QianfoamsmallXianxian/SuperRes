@@ -183,6 +183,8 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread { binding.progressBar.isIndeterminate = false; binding.progressBar.progress = pct }
                     }
                     if (autoSave) saveBitmapToGallery(result, format)
+                result.recycle()
+                bmp.recycle()
                     okCount++
                 } catch (_: Exception) {}
                 runOnUiThread { binding.tvStatus.text = "批量修复：${index + 1}/${uris.size}" }
