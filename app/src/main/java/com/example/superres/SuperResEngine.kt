@@ -35,7 +35,7 @@ object SuperResEngine {
         }
 
         onProgress(86)
-        if (raw.width.toLong() * raw.height.toLong() > 18_000_000L) raw else clarityEnhance(raw, onProgress)
+        if (raw.width.toLong() * raw.height.toLong() > 64_000_000L) raw else clarityEnhance(raw, onProgress)
     }
 
     private fun highQualityScale(src: Bitmap, targetScale: Int, onProgress: (Int) -> Unit): Bitmap {
