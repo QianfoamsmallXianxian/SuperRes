@@ -93,6 +93,11 @@ class MainActivity : AppCompatActivity() {
         val scales = listOf("1x", "2x", "3x", "4x", "8x")
         binding.spinnerScale.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, scales)
         binding.spinnerScale.setSelection(3)
+
+        val formats = listOf("PNG", "JPEG", "WEBP")
+        binding.spinnerFormat.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, formats)
+        binding.spinnerFormat.setSelection(0)
+
         binding.btnPickImage.setOnClickListener { pickImage.launch("image/*") }
         binding.btnPickBatch.setOnClickListener { pickBatch.launch("image/*") }
         binding.btnPickModel.setOnClickListener { pickModel.launch("*/*") }
@@ -119,13 +124,20 @@ class MainActivity : AppCompatActivity() {
         return n.endsWith(".tflite") || n.endsWith(".lite")
     }
 
+    private fun currentScale(): Int = binding.spinnerScale.selectedItem?.toString()?.removeSuffix("x")?.toIntOrNull() ?: 4
+    private fun currentFormat(): Bitmap.CompressFormat = when (binding.spinnerFormat.selectedItem?.toString()) {
+        "JPEG" -> Bitmap.CompressFormat.JPEG
+        "WEBP" -> Bitmap.CompressFormat.WEBP
+        else -> Bitmap.CompressFormat.PNG
+    }
+
     private fun runEnhance() {
         val src = selectedBitmap ?: return
-        val scaleText = binding.spinnerScale.selectedItem?.toString() ?: "4x"
-        val scale = scaleText.removeSuffix("x").toIntOrNull() ?: 4
+        val scale = currentScale()
         val useGpu = binding.switchGpu.isChecked
         val autoSave = binding.switchAutoSave.isChecked
         val modelUri = if (modelSupported) customModelUri else null
+        val format = currentFormat()
         binding.btnRun.isEnabled = false
         binding.progressBar.isIndeterminate = true
         binding.tvStatus.text = getString(R.string.enhancing)
@@ -135,7 +147,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { binding.progressBar.isIndeterminate = false; binding.progressBar.progress = pct }
                 }
                 var saveInfo = ""
-                if (autoSave) saveInfo = saveBitmapToGallery(result)
+                if (autoSave) saveInfo = saveBitmapToGallery(result, format)
                 withContext(Dispatchers.Main) {
                     binding.imgPreview.setImageBitmap(result)
                     val done = getString(R.string.done, result.width, result.height)
@@ -155,11 +167,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runBatch(uris: List<Uri>) {
-        val scaleText = binding.spinnerScale.selectedItem?.toString() ?: "4x"
-        val scale = scaleText.removeSuffix("x").toIntOrNull() ?: 4
+        val scale = currentScale()
         val useGpu = binding.switchGpu.isChecked
         val autoSave = binding.switchAutoSave.isChecked
         val modelUri = if (modelSupported) customModelUri else null
+        val format = currentFormat()
         binding.progressBar.isIndeterminate = true
         CoroutineScope(Dispatchers.IO).launch {
             var okCount = 0
@@ -169,7 +181,7 @@ class MainActivity : AppCompatActivity() {
                     val result = SuperResEngine.enhance(this@MainActivity, bmp, scale, useGpu, modelUri, selectedModelName) { pct ->
                         runOnUiThread { binding.progressBar.isIndeterminate = false; binding.progressBar.progress = pct }
                     }
-                    if (autoSave) saveBitmapToGallery(result)
+                    if (autoSave) saveBitmapToGallery(result, format)
                     okCount++
                 } catch (_: Exception) {}
                 runOnUiThread { binding.tvStatus.text = "批量修复：${index + 1}/${uris.size}" }
@@ -182,22 +194,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveBitmapToGallery(bitmap: Bitmap): String = try {
-        val fileName = "SuperRes_${System.currentTimeMillis()}.png"
+    private fun saveBitmapToGallery(bitmap: Bitmap, format: Bitmap.CompressFormat): String = try {
+        val ext = when (format) {
+            Bitmap.CompressFormat.JPEG -> "jpg"
+            Bitmap.CompressFormat.WEBP -> "webp"
+            else -> "png"
+        }
+        val mime = when (format) {
+            Bitmap.CompressFormat.JPEG -> "image/jpeg"
+            Bitmap.CompressFormat.WEBP -> "image/webp"
+            else -> "image/png"
+        }
+        val fileName = "SuperRes_${System.currentTimeMillis()}.$ext"
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.MIME_TYPE, mime)
                 put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SuperRes")
             }
             val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: throw IllegalStateException("insert failed")
-            contentResolver.openOutputStream(uri).use { out -> if (out == null) throw IllegalStateException("open failed"); bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+            contentResolver.openOutputStream(uri).use { out -> if (out == null) throw IllegalStateException("open failed"); bitmap.compress(format, 100, out) }
             getString(R.string.saved_to, "Pictures/SuperRes/$fileName")
         } else {
             val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "SuperRes")
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, fileName)
-            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            FileOutputStream(file).use { bitmap.compress(format, 100, it) }
             getString(R.string.saved_to, file.absolutePath)
         }
     } catch (e: Exception) { getString(R.string.save_failed, e.message ?: "") }
