@@ -44,6 +44,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val pickBatch = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) {
+            binding.tvStatus.text = "已选择 ${uris.size} 张图片"
+            runBatch(uris.toList())
+        }
+    }
+
     private val pickModel = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
             customModelUri = it
@@ -74,17 +81,10 @@ class MainActivity : AppCompatActivity() {
     private fun ensurePermissions() {
         val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
-                perms.add(Manifest.permission.READ_MEDIA_IMAGES)
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.READ_MEDIA_IMAGES)
         } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            if (Build.VERSION.SDK_INT <= 28 &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
         if (perms.isNotEmpty()) requestPermission.launch(perms.toTypedArray())
     }
@@ -93,8 +93,8 @@ class MainActivity : AppCompatActivity() {
         val scales = listOf("1x", "2x", "3x", "4x", "8x")
         binding.spinnerScale.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, scales)
         binding.spinnerScale.setSelection(3)
-
         binding.btnPickImage.setOnClickListener { pickImage.launch("image/*") }
+        binding.btnPickBatch.setOnClickListener { pickBatch.launch("image/*") }
         binding.btnPickModel.setOnClickListener { pickModel.launch("*/*") }
         binding.btnRun.setOnClickListener { runEnhance() }
         binding.switchGpu.isChecked = true
@@ -102,24 +102,17 @@ class MainActivity : AppCompatActivity() {
         binding.switchAutoSave.isChecked = true
     }
 
-    private fun loadBitmap(uri: Uri): Bitmap? {
-        return try {
-            val stream: InputStream? = contentResolver.openInputStream(uri)
-            stream?.use { BitmapFactory.decodeStream(it) }
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.load_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
-            null
-        }
-    }
+    private fun loadBitmap(uri: Uri): Bitmap? = try {
+        val stream: InputStream? = contentResolver.openInputStream(uri)
+        stream?.use { BitmapFactory.decodeStream(it) }
+    } catch (e: Exception) { null }
 
-    private fun getModelFileName(uri: Uri): String? {
-        return try {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else null
-            }
-        } catch (e: Exception) { null }
-    }
+    private fun getModelFileName(uri: Uri): String? = try {
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else null
+        }
+    } catch (e: Exception) { null }
 
     private fun isSupportedModel(name: String?): Boolean {
         val n = name?.lowercase() ?: return false
@@ -133,31 +126,16 @@ class MainActivity : AppCompatActivity() {
         val useGpu = binding.switchGpu.isChecked
         val autoSave = binding.switchAutoSave.isChecked
         val modelUri = if (modelSupported) customModelUri else null
-
         binding.btnRun.isEnabled = false
         binding.progressBar.isIndeterminate = true
         binding.tvStatus.text = getString(R.string.enhancing)
-
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = SuperResEngine.enhance(
-                    context = this@MainActivity,
-                    bitmap = src,
-                    scale = scale,
-                    useGpu = useGpu,
-                    customModelUri = modelUri,
-                    customModelName = selectedModelName,
-                    onProgress = { pct ->
-                        runOnUiThread {
-                            binding.progressBar.isIndeterminate = false
-                            binding.progressBar.progress = pct
-                        }
-                    }
-                )
-
+                val result = SuperResEngine.enhance(this@MainActivity, src, scale, useGpu, modelUri, selectedModelName) { pct ->
+                    runOnUiThread { binding.progressBar.isIndeterminate = false; binding.progressBar.progress = pct }
+                }
                 var saveInfo = ""
                 if (autoSave) saveInfo = saveBitmapToGallery(result)
-
                 withContext(Dispatchers.Main) {
                     binding.imgPreview.setImageBitmap(result)
                     val done = getString(R.string.done, result.width, result.height)
@@ -171,37 +149,56 @@ class MainActivity : AppCompatActivity() {
                     binding.tvStatus.text = getString(R.string.error, e.message ?: "unknown")
                     binding.btnRun.isEnabled = true
                     binding.progressBar.isIndeterminate = false
-                    Toast.makeText(this@MainActivity, getString(R.string.error_short, e.message ?: ""), Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    private fun saveBitmapToGallery(bitmap: Bitmap): String {
-        return try {
-            val fileName = "SuperRes_${System.currentTimeMillis()}.png"
-            if (Build.VERSION.SDK_INT >= 29) {
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SuperRes")
-                }
-                val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                    ?: throw IllegalStateException("无法创建媒体文件")
-                contentResolver.openOutputStream(uri).use { out ->
-                    if (out == null) throw IllegalStateException("无法打开输出流")
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
-                getString(R.string.saved_to, "Pictures/SuperRes/$fileName")
-            } else {
-                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).let { File(it, "SuperRes") }
-                if (!dir.exists()) dir.mkdirs()
-                val file = File(dir, fileName)
-                FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
-                getString(R.string.saved_to, file.absolutePath)
+    private fun runBatch(uris: List<Uri>) {
+        val scaleText = binding.spinnerScale.selectedItem?.toString() ?: "4x"
+        val scale = scaleText.removeSuffix("x").toIntOrNull() ?: 4
+        val useGpu = binding.switchGpu.isChecked
+        val autoSave = binding.switchAutoSave.isChecked
+        val modelUri = if (modelSupported) customModelUri else null
+        binding.progressBar.isIndeterminate = true
+        CoroutineScope(Dispatchers.IO).launch {
+            var okCount = 0
+            for ((index, uri) in uris.withIndex()) {
+                val bmp = loadBitmap(uri) ?: continue
+                try {
+                    val result = SuperResEngine.enhance(this@MainActivity, bmp, scale, useGpu, modelUri, selectedModelName) { pct ->
+                        runOnUiThread { binding.progressBar.isIndeterminate = false; binding.progressBar.progress = pct }
+                    }
+                    if (autoSave) saveBitmapToGallery(result)
+                    okCount++
+                } catch (_: Exception) {}
+                runOnUiThread { binding.tvStatus.text = "批量修复：${index + 1}/${uris.size}" }
             }
-        } catch (e: Exception) {
-            getString(R.string.save_failed, e.message ?: "")
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = getString(R.string.batch_done, okCount)
+                binding.progressBar.progress = 100
+                binding.progressBar.isIndeterminate = false
+            }
         }
     }
+
+    private fun saveBitmapToGallery(bitmap: Bitmap): String = try {
+        val fileName = "SuperRes_${System.currentTimeMillis()}.png"
+        if (Build.VERSION.SDK_INT >= 29) {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SuperRes")
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: throw IllegalStateException("insert failed")
+            contentResolver.openOutputStream(uri).use { out -> if (out == null) throw IllegalStateException("open failed"); bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+            getString(R.string.saved_to, "Pictures/SuperRes/$fileName")
+        } else {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "SuperRes")
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, fileName)
+            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            getString(R.string.saved_to, file.absolutePath)
+        }
+    } catch (e: Exception) { getString(R.string.save_failed, e.message ?: "") }
 }
